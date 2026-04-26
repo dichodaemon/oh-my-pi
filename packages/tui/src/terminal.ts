@@ -174,25 +174,32 @@ export class ProcessTerminal implements Terminal {
 		// See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
 		this.#queryAndEnableKittyProtocol();
 
-		// Query terminal background color via OSC 11 for dark/light detection.
-		// Uses DA1 (Primary Device Attributes) as a sentinel: terminals process
-		// sequences in order, so if DA1 arrives before OSC 11 response,
-		// the terminal does not support OSC 11. This avoids indefinite hangs.
-		// Technique used by Neovim, bat, fish, and terminal-colorsaurus.
-		this.#queryBackgroundColor();
+		// Appearance detection: query terminal background color via OSC 11,
+		// subscribe to Mode 2031 change notifications, and poll as fallback.
+		// Disabled by PI_NO_APPEARANCE_POLL for terminals where the escape
+		// sequences interfere with copy-paste or cause display artifacts
+		// (e.g., WezTerm mux over SSH).
+		if (!Bun.env.PI_NO_APPEARANCE_POLL) {
+			// Query terminal background color via OSC 11 for dark/light detection.
+			// Uses DA1 (Primary Device Attributes) as a sentinel: terminals process
+			// sequences in order, so if DA1 arrives before OSC 11 response,
+			// the terminal does not support OSC 11. This avoids indefinite hangs.
+			// Technique used by Neovim, bat, fish, and terminal-colorsaurus.
+			this.#queryBackgroundColor();
 
-		// Subscribe to Mode 2031 appearance change notifications.
-		// When the terminal reports a change, we re-query OSC 11 to get the
-		// actual background color (following Neovim convention) with 100ms debounce.
-		this.#safeWrite("\x1b[?2031h");
+			// Subscribe to Mode 2031 appearance change notifications.
+			// When the terminal reports a change, we re-query OSC 11 to get the
+			// actual background color (following Neovim convention) with 100ms debounce.
+			this.#safeWrite("\x1b[?2031h");
 
-		// Start periodic OSC 11 re-query for terminals without Mode 2031
-		// (Warp, Alacritty, WezTerm, iTerm2). Self-disables once Mode 2031 fires.
-		// Windows Terminal under WSL has been observed to close the hosting tab
-		// after repeated OSC 11/DA1 probes. Keep the initial/event-driven probes,
-		// but avoid background polling there.
-		if (!isWindowsSubsystemForLinux()) {
-			this.#startOsc11Poll();
+			// Start periodic OSC 11 re-query for terminals without Mode 2031
+			// (Warp, Alacritty, WezTerm, iTerm2). Self-disables once Mode 2031 fires.
+			// Windows Terminal under WSL has been observed to close the hosting tab
+			// after repeated OSC 11/DA1 probes. Keep the initial/event-driven probes,
+			// but avoid background polling there.
+			if (!isWindowsSubsystemForLinux()) {
+				this.#startOsc11Poll();
+			}
 		}
 	}
 
