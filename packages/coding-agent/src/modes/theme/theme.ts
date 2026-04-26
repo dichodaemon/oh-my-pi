@@ -2090,6 +2090,9 @@ function stopMacAppearanceObserver(): void {
 
 /** Re-check appearance on SIGWINCH and switch dark/light when using auto-detected theme. */
 function startSigwinchListener(): void {
+	// When appearance polling is disabled, SIGWINCH re-evaluation has no
+	// terminal-reported appearance data to act on. Skip it.
+	if (Bun.env.PI_NO_APPEARANCE_POLL) return;
 	stopSigwinchListener();
 	sigwinchHandler = () => {
 		reevaluateAutoTheme("SIGWINCH");
