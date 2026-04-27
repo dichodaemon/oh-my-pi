@@ -578,3 +578,53 @@ describe("NVIDIA NIM DeepSeek special-token stripping", () => {
 		expect(text).toBe("keep <\uff5cas-is\uff5c> please");
 	});
 });
+
+
+describe("deepseek model detection via detectCompat", () => {
+	function directDeepseekModel(id: string, reasoning = true): Model<"openai-completions"> {
+		return {
+			...getBundledModel("openai", "gpt-4o-mini"),
+			api: "openai-completions",
+			provider: "deepseek",
+			baseUrl: "https://api.deepseek.com",
+			id,
+			reasoning,
+		};
+	}
+
+	it("requires reasoning_content for tool calls on deepseek reasoning model", () => {
+		const compat = detectCompat(directDeepseekModel("deepseek-v4-pro"));
+		expect(compat.requiresReasoningContentForToolCalls).toBe(true);
+	});
+
+	it("does not require reasoning_content when deepseek model is not reasoning-enabled", () => {
+		const compat = detectCompat(directDeepseekModel("deepseek-chat", false));
+		expect(compat.requiresReasoningContentForToolCalls).toBe(false);
+	});
+
+	it("detects deepseek via baseUrl regardless of provider name", () => {
+		const model: Model<"openai-completions"> = {
+			...getBundledModel("openai", "gpt-4o-mini"),
+			api: "openai-completions",
+			provider: "custom-provider",
+			baseUrl: "https://api.deepseek.com/v1",
+			id: "deepseek-v4-pro",
+			reasoning: true,
+		};
+		const compat = detectCompat(model);
+		expect(compat.requiresReasoningContentForToolCalls).toBe(true);
+	});
+
+	it("does not detect deepseek via baseUrl when reasoning is false", () => {
+		const model: Model<"openai-completions"> = {
+			...getBundledModel("openai", "gpt-4o-mini"),
+			api: "openai-completions",
+			provider: "custom-provider",
+			baseUrl: "https://api.deepseek.com/v1",
+			id: "deepseek-chat",
+			reasoning: false,
+		};
+		const compat = detectCompat(model);
+		expect(compat.requiresReasoningContentForToolCalls).toBe(false);
+	});
+});

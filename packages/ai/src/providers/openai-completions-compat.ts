@@ -60,19 +60,6 @@ export function detectOpenAICompat(model: Model<"openai-completions">, resolvedB
 		/(^|\/)anthropic\//i.test(model.id);
 	const isAlibaba = provider === "alibaba-coding-plan" || baseUrl.includes("dashscope");
 	const isQwen = model.id.toLowerCase().includes("qwen");
-	// DeepSeek V4 (and other reasoning-capable DeepSeek models) reject follow-up requests in
-	// thinking mode unless prior assistant tool-call turns include `reasoning_content`. The
-	// upstream model is reachable through many OpenAI-compat hosts (api.deepseek.com, Deepinfra,
-	// Kilo, NVIDIA NIM, Zenmux, OpenRouter, …), so we match by model id/name as well as by
-	// provider/baseUrl. The flag is gated by `model.reasoning` because the invariant only
-	// applies when thinking mode is actually engaged.
-	const lowerId = model.id.toLowerCase();
-	const lowerName = (model.name ?? "").toLowerCase();
-	const isDeepseekFamily =
-		provider === "deepseek" ||
-		baseUrl.includes("deepseek.com") ||
-		lowerId.includes("deepseek") ||
-		lowerName.includes("deepseek");
 
 	const isNonStandard =
 		isCerebras ||
@@ -136,13 +123,14 @@ export function detectOpenAICompat(model: Model<"openai-completions">, resolvedB
 		reasoningContentField: "reasoning_content",
 		// Backends that 400 follow-up requests when prior assistant tool-call turns lack `reasoning_content`:
 		//   - Kimi: documented invariant on its native API and via OpenCode-Go.
+		//   - DeepSeek: direct API (provider: "deepseek", api.deepseek.com) enforces this for reasoning models.
 		//   - Any reasoning-capable model reached through OpenRouter: DeepSeek V4 Pro and similar enforce
 		//     this server-side whenever the request is in thinking mode. We can't translate Anthropic's
 		//     redacted/encrypted reasoning into DeepSeek's plaintext form, so cross-provider continuations
 		//     rely on a placeholder — see `convertMessages` for the placeholder injection.
 		requiresReasoningContentForToolCalls:
 			isKimiModel ||
-			(isDeepseekFamily && Boolean(model.reasoning)) ||
+			((provider === "deepseek" || baseUrl.includes("api.deepseek.com")) && Boolean(model.reasoning)) ||
 			((provider === "openrouter" || baseUrl.includes("openrouter.ai")) && Boolean(model.reasoning)),
 		// DeepSeek V4 rejects synthetic reasoning_content placeholders (".") on tool-call turns.
 		// Kimi and OpenRouter accept them when actual reasoning is unavailable.
