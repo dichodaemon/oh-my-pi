@@ -1212,21 +1212,26 @@ export function convertMessages(
 				(assistantMsg as any).reasoning_content !== undefined ||
 				(assistantMsg as any).reasoning !== undefined ||
 				(assistantMsg as any).reasoning_text !== undefined;
-			// Inject a `reasoning_content` placeholder on assistant tool-call turns when the backend
+			// Inject a `reasoning_content` placeholder on assistant turns when the backend
 			// rejects history without it. The compat flag captures the rule:
 			//   - Kimi (native or via OpenCode-Go): chat completion endpoint demands the field.
-			//   - Reasoning models reached through OpenRouter (e.g. DeepSeek V4 Pro): the underlying
-			//     provider's thinking-mode validator demands it on every prior assistant turn. omp
-			//     cannot synthesize real reasoning when the conversation was warmed up by another
-			//     provider whose reasoning is redacted/encrypted (Anthropic) or simply absent, so we
-			//     emit a placeholder. Real captured reasoning, when present, is preserved earlier via
-			//     the `thinkingSignature` echo path and short-circuits via `hasReasoningField`.
+			//   - DeepSeek reasoning models: the thinking-mode validator demands it on every
+			//     prior assistant turn, not just tool-call ones. After compaction or when
+			//     thinking blocks are filtered as empty, the field is lost and DeepSeek
+			//     returns 400: 'reasoning_content in thinking mode must be passed back.'
+			//   - Reasoning models reached through OpenRouter (e.g. DeepSeek V4 Pro): the
+			//     underlying provider's thinking-mode validator demands it on every prior
+			//     assistant turn. omp cannot synthesize real reasoning when the conversation
+			//     was warmed up by another provider whose reasoning is redacted/encrypted
+			//     (Anthropic) or simply absent, so we emit a placeholder. Real captured
+			//     reasoning, when present, is preserved earlier via the `thinkingSignature`
+			//     echo path and short-circuits via `hasReasoningField`.
 			// `thinkingFormat` is gated to formats that consume the field (openai/openrouter chat
 			// completions); formats with their own conventions (zai, qwen) are excluded.
 			const stubsReasoningContent =
 				compat.requiresReasoningContentForToolCalls &&
 				(compat.thinkingFormat === "openai" || compat.thinkingFormat === "openrouter");
-			if (toolCalls.length > 0 && stubsReasoningContent && !hasReasoningField) {
+			if (stubsReasoningContent && !hasReasoningField) {
 				const reasoningField = compat.reasoningContentField ?? "reasoning_content";
 				(assistantMsg as any)[reasoningField] = ".";
 			}
