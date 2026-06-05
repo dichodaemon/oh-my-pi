@@ -93,6 +93,40 @@ function adjustBrightness(color: string, factor: number): string {
 	return `rgb(${adjust(parsed.r)}, ${adjust(parsed.g)}, ${adjust(parsed.b)})`;
 }
 
+/** Calculate WCAG contrast ratio between a foreground color and a background luminance. */
+function contrastRatio(fgR: number, fgG: number, fgB: number, bgLum: number): number {
+	const fgLum = getLuminance(fgR, fgG, fgB);
+	const lighter = Math.max(fgLum, bgLum);
+	const darker = Math.min(fgLum, bgLum);
+	return (lighter + 0.05) / (darker + 0.05);
+}
+
+/** Darken a color until it meets a minimum contrast ratio against a light background. */
+function darkenForContrast(color: string, bgColor: string, minRatio: number): string {
+	const parsed = parseColor(color);
+	const bgParsed = parseColor(bgColor);
+	if (!parsed || !bgParsed) return color;
+
+	const bgLum = getLuminance(bgParsed.r, bgParsed.g, bgParsed.b);
+	if (contrastRatio(parsed.r, parsed.g, parsed.b, bgLum) >= minRatio) return color;
+
+	// Binary search for the brightest factor that still meets the contrast target.
+	let lo = 0.1;
+	let hi = 1.0;
+	for (let i = 0; i < 16; i++) {
+		const mid = (lo + hi) / 2;
+		const adjusted = adjustBrightness(color, mid);
+		const adjParsed = parseColor(adjusted);
+		if (!adjParsed) return adjusted;
+		if (contrastRatio(adjParsed.r, adjParsed.g, adjParsed.b, bgLum) >= minRatio) {
+			lo = mid; // meets target, try brighter
+		} else {
+			hi = mid; // fails, try darker
+		}
+	}
+	return adjustBrightness(color, lo);
+}
+
 /** Derive export background colors from a base color. */
 function deriveExportColors(baseColor: string): { pageBg: string; cardBg: string; infoBg: string } {
 	const parsed = parseColor(baseColor);
@@ -114,6 +148,12 @@ function deriveExportColors(baseColor: string): { pageBg: string; cardBg: string
 		infoBg: `rgb(${Math.min(255, parsed.r + 20)}, ${Math.min(255, parsed.g + 15)}, ${parsed.b})`,
 	};
 }
+
+/** Color keys that should have boosted contrast for readability in HTML export. */
+const CONTRAST_COLORS = ["dim", "muted", "toolOutput", "warning"] as const;
+
+/** Minimum WCAG AA contrast ratio for normal text (4.5:1). */
+const MIN_CONTRAST = 4.5;
 
 /**
  * Generate CSS custom properties for the export `:root`.
@@ -142,7 +182,6 @@ export async function generateThemeVars(
 		return generateThemeVars("theme", palette);
 	}
 	if (palette === "web") return webExportThemeVars();
-
 	const colors = await getResolvedThemeColors(themeName);
 	const lines: string[] = [];
 	for (const key in colors) {
@@ -153,9 +192,24 @@ export async function generateThemeVars(
 	const userMessageBg = colors.userMessageBg || "#343541";
 	const derived = deriveExportColors(userMessageBg);
 
-	lines.push(`--body-bg: ${themeExport.pageBg ?? derived.pageBg};`);
+	const bodyBg = themeExport.pageBg ?? derived.pageBg;
+	lines.push(`--body-bg: ${bodyBg};`);
 	lines.push(`--container-bg: ${themeExport.cardBg ?? derived.cardBg};`);
 	lines.push(`--info-bg: ${themeExport.infoBg ?? derived.infoBg};`);
+
+	// Boost contrast for secondary text colors on light backgrounds.
+	// Light themes define dim/muted/warning colors for dark terminal
+	// backgrounds; on a light HTML page they become unreadable.
+	const bgParsed = parseColor(bodyBg);
+	if (bgParsed && getLuminance(bgParsed.r, bgParsed.g, bgParsed.b) > 0.5) {
+		for (const key of CONTRAST_COLORS) {
+			const original = colors[key];
+			if (original) {
+				const boosted = darkenForContrast(original, bodyBg, MIN_CONTRAST);
+				lines.push(`--${key}: ${boosted};`);
+			}
+		}
+	}
 
 	return lines.join(" ");
 }
